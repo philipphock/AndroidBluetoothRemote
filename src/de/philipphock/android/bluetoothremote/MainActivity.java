@@ -22,6 +22,8 @@ import android.view.MenuItem;
 import android.view.MenuItem.OnMenuItemClickListener;
 import android.view.View;
 import android.widget.EditText;
+import android.widget.SeekBar;
+import android.widget.SeekBar.OnSeekBarChangeListener;
 import android.widget.TextView;
 import android.widget.Toast;
 import de.philipphock.android.lib.broadcast.blutooth.BluetoothStateActor;
@@ -55,6 +57,30 @@ public class MainActivity extends Activity implements BluetoothService.Bluetooth
         
         before_connect.add(BEFORE_CONNECT.BLUETOOTH_OFF);
         before_connect.add(BEFORE_CONNECT.NOT_CONNECTED_WITH_SERVICE);
+        
+        
+        SeekBar seek = (SeekBar)findViewById(R.id.volslider);
+        seek.setOnSeekBarChangeListener(new OnSeekBarChangeListener() {
+			
+			@Override
+			public void onStopTrackingTouch(SeekBar seekBar) {
+				float progress = seekBar.getProgress();
+				send_Volume(progress/1000f);
+						
+			}
+			
+			@Override
+			public void onStartTrackingTouch(SeekBar seekBar) {
+				
+			}
+			
+			@Override
+			public void onProgressChanged(SeekBar seekBar, int progress,
+					boolean fromUser) {
+			
+						
+			}
+		});
          
     }
 
@@ -305,6 +331,28 @@ public class MainActivity extends Activity implements BluetoothService.Bluetooth
 	
 	public void send_standby(View v){
 		send("standby");
+	}
+	
+	
+	public void send_mute(View v){
+		send("togglemute");
+	}
+	
+	public void send_next(View v){
+		send("musicplayer:next");
+	}
+	public void send_prev(View v){
+		send("musicplayer:prev");
+	}
+
+	public void send_playpause(View v){
+		send("musicplayer:playpause");
+	}
+
+	
+	private void send_Volume(float percent){
+		Log.d("debug", "volume:"+percent);
+		send("volume:"+percent);
 	}
 	
 }

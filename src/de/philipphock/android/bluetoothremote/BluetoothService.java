@@ -71,7 +71,7 @@ public class BluetoothService extends Service implements BTClientCallback{
 		}
 	}
 	
-	public void send(String data){
+	public synchronized void send(String data){
 		try {
 			if (btClient == null){
 				Log.d("debug","bluetooth client is null");
