@@ -81,7 +81,14 @@ public class BluetoothService extends Service implements BTClientCallback{
 				Log.d("debug","data to send is null");
 				return;
 			}
-			btClient.send(data.getBytes("UTF-8"));
+			byte[] toSend = data.getBytes("UTF-8");
+			if (toSend != null || btClient != null){
+				btClient.send(toSend);
+			}else{
+				disconnect();
+				onConnection(false);
+			}
+				
 		} catch (UnsupportedEncodingException e) {
 			e.printStackTrace();
 		}
@@ -131,6 +138,7 @@ public class BluetoothService extends Service implements BTClientCallback{
 	//BTClientCallback\\
 	
 	public void disconnect(){
+		isConnected=false;
 		try {
 			if (btClient != null)
 				btClient.cancel();
