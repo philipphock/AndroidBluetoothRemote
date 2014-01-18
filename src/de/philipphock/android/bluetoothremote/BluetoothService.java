@@ -132,7 +132,8 @@ public class BluetoothService extends Service implements BTClientCallback{
 	
 	public void disconnect(){
 		try {
-			btClient.cancel();
+			if (btClient != null)
+				btClient.cancel();
 		} catch (IOException e) {
 			e.printStackTrace();
 		}

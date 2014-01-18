@@ -1,8 +1,10 @@
 package de.philipphock.android.bluetoothremote;
 
+import java.util.HashSet;
 import java.util.Set;
 
 import android.app.Activity;
+import android.app.ProgressDialog;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.content.ComponentName;
@@ -29,27 +31,30 @@ public class MainActivity extends Activity implements BluetoothService.Bluetooth
 
 	
 	private EditText recvTxt;
-	private EditText toSendTxt;
 	private TextView connstatus;
 	private BluetoothAdapter mBluetoothAdapter;
 	private BluetoothService btService;
 	private BluetoothStateActor btStateActor;
 	private boolean bluetoothEnabledBeforeAppStart=false;
 	private TextView btStatus;
-	private BluetoothDevice device;
+	private enum BEFORE_CONNECT {NOT_CONNECTED_WITH_SERVICE,BLUETOOTH_OFF};
+	private ProgressDialog progressToConnect;
+	private Set<BEFORE_CONNECT> before_connect = new HashSet<MainActivity.BEFORE_CONNECT>();
 	
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         
-        recvTxt = (EditText) findViewById(R.id.recvTxt);
-        toSendTxt = (EditText) findViewById(R.id.toSend);
+       
         connstatus = (TextView) findViewById(R.id.connStatus);
         btStatus = (TextView) findViewById(R.id.btStatus);
         
         btStateActor = new BluetoothStateActor(this);
-        mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();    
+        mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter(); 
+        
+        before_connect.add(BEFORE_CONNECT.BLUETOOTH_OFF);
+        before_connect.add(BEFORE_CONNECT.NOT_CONNECTED_WITH_SERVICE);
          
     }
 
@@ -57,6 +62,8 @@ public class MainActivity extends Activity implements BluetoothService.Bluetooth
     @Override
     protected void onResume() {
     	super.onResume();
+    	progressToConnect = ProgressDialog.show(this, "connecting...",
+    		    "waiting for connection", true);
     	btStateActor.register(this);
     	Intent serviceBind = new Intent(this,BluetoothService.class);
     	bindService(serviceBind, bluetoothServiceConnection,Context.BIND_AUTO_CREATE );
@@ -64,10 +71,8 @@ public class MainActivity extends Activity implements BluetoothService.Bluetooth
     	bluetoothEnabledBeforeAppStart=mBluetoothAdapter.isEnabled();
     	onBluetoothEnabledChanged(bluetoothEnabledBeforeAppStart);
     	mBluetoothAdapter.enable();
-    	connstatus.setText("unknown");
-		connstatus.setTextColor(Color.YELLOW);
 	
-		
+
 
             
         
@@ -76,20 +81,33 @@ public class MainActivity extends Activity implements BluetoothService.Bluetooth
 	@Override
 	protected void onPause() {
 		super.onPause();
-		btStateActor.unregister(this);
-		btService.disconnect();
+		if (btService != null){
+			btService.disconnect();	
+		}
+		
 		if (!bluetoothEnabledBeforeAppStart){
 			mBluetoothAdapter.disable();
 		}
+		btStateActor.unregister(this);
 		unbindService(bluetoothServiceConnection);
+		
+		if (progressToConnect != null)
+			progressToConnect.dismiss();
 	}
 	    
 
+	
+	private void tryConnect(){
+		if (before_connect.size()==0){
+			doConnectToDefault();
+		}
+	}
     
     private final ServiceConnection bluetoothServiceConnection = new ServiceConnection() {
 		
 		@Override
 		public void onServiceDisconnected(ComponentName name) {
+			before_connect.add(BEFORE_CONNECT.NOT_CONNECTED_WITH_SERVICE);
 			runOnUiThread(new Runnable() {
 				
 				@Override
@@ -106,12 +124,14 @@ public class MainActivity extends Activity implements BluetoothService.Bluetooth
 		
 		@Override
 		public void onServiceConnected(ComponentName name, IBinder service) {
+			
 			BluetoothService.MyBinder b = (BluetoothService.MyBinder) service;
 		    btService = b.getService();
 		    btService.setCallback(MainActivity.this);
 		    onConnection(btService.isConnected(), false);
-			if(!btService.isConnected())
-				doConnectToDefault();
+			
+			before_connect.remove(BEFORE_CONNECT.NOT_CONNECTED_WITH_SERVICE);
+			tryConnect();
 		    
 		}
 	};
@@ -153,6 +173,8 @@ public class MainActivity extends Activity implements BluetoothService.Bluetooth
 				if (isConnected){
 					connstatus.setText("connected");
 					connstatus.setTextColor(Color.GREEN);
+					if (progressToConnect != null)
+						progressToConnect.dismiss();
 				}else{
 					connstatus.setText("disconnected");
 					connstatus.setTextColor(Color.RED);
@@ -166,16 +188,7 @@ public class MainActivity extends Activity implements BluetoothService.Bluetooth
 
 	@Override
 	public void onRecv(final String data) {
-		Log.d("debug", "recv "+data);
-		runOnUiThread(new Runnable() {
-			
-			@Override
-			public void run() {
-				recvTxt.append(data);
-				recvTxt.append("\n");
-			}
-		});  
-
+		//handle recv
 		
 	}
 
@@ -200,7 +213,11 @@ public class MainActivity extends Activity implements BluetoothService.Bluetooth
 		if (isEnabled){
 			btStatus.setText("bluetooth on");
 			btStatus.setTextColor(Color.GREEN);
+			before_connect.remove(BEFORE_CONNECT.BLUETOOTH_OFF);
+			tryConnect();
+			
 		}else{
+			before_connect.add(BEFORE_CONNECT.BLUETOOTH_OFF);
 			btStatus.setText("bluetooth off");
 			btStatus.setTextColor(Color.RED);
 		}
@@ -277,10 +294,17 @@ public class MainActivity extends Activity implements BluetoothService.Bluetooth
 		}
 	}
 	
-	public void doSend(View v){
-		String s = toSendTxt.getText().toString();
+	
+	
+	private void send(String s){
     	btService.send(s);
-    	toSendTxt.getText().clear();
+	}
+	
+	
+	//commands by ui
+	
+	public void send_standby(View v){
+		send("standby");
 	}
 	
 }
