@@ -1,48 +1,52 @@
 package de.philipphock.android.bluetoothremote;
 
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+
+import org.json.JSONException;
+import org.json.JSONObject;
 
 import android.app.Activity;
 import android.app.ProgressDialog;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.os.Bundle;
-import android.os.IBinder;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.MenuItem.OnMenuItemClickListener;
 import android.view.View;
-import android.widget.EditText;
 import android.widget.SeekBar;
 import android.widget.SeekBar.OnSeekBarChangeListener;
 import android.widget.TextView;
 import android.widget.Toast;
 import de.philipphock.android.lib.bluetooth.BTClient;
+import de.philipphock.android.lib.bluetooth.BTClient.BTClientCallback;
 import de.philipphock.android.lib.broadcast.blutooth.BluetoothStateActor;
 import de.philipphock.android.lib.broadcast.blutooth.BluetoothStateChangeReactor;
 
-public class MainActivity extends Activity implements BluetoothService.BluetoothServiceCallbacks, BluetoothStateChangeReactor{
+public class MainActivity extends Activity implements BTClientCallback, BluetoothStateChangeReactor{
 
 	
 	private TextView connstatus;
 	private BluetoothAdapter mBluetoothAdapter;
-	private BluetoothService btService;
 	private BluetoothStateActor btStateActor;
 	private boolean bluetoothEnabledBeforeAppStart=false;
 	private TextView btStatus;
-	private enum BEFORE_CONNECT {NOT_CONNECTED_WITH_SERVICE,BLUETOOTH_OFF};
+	private enum BEFORE_CONNECT {BLUETOOTH_OFF,ALREADY_CONNECTED};
 	private ProgressDialog progressToConnect;
-	private Set<BEFORE_CONNECT> before_connect = new HashSet<MainActivity.BEFORE_CONNECT>();
+	private Set<BEFORE_CONNECT> before_connect = Collections.synchronizedSet(new HashSet<MainActivity.BEFORE_CONNECT>());
 	private BTClient btClient; 
+	private final String serviceUUID = "94d6b2c0-8034-11e3-baa7-0800200c9a66";
+	private SeekBar seek;
 	
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -57,10 +61,9 @@ public class MainActivity extends Activity implements BluetoothService.Bluetooth
         mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter(); 
         
         before_connect.add(BEFORE_CONNECT.BLUETOOTH_OFF);
-        before_connect.add(BEFORE_CONNECT.NOT_CONNECTED_WITH_SERVICE);
         
         
-        SeekBar seek = (SeekBar)findViewById(R.id.volslider);
+        seek = (SeekBar)findViewById(R.id.volslider);
         seek.setOnSeekBarChangeListener(new OnSeekBarChangeListener() {
 			
 			@Override
@@ -89,16 +92,15 @@ public class MainActivity extends Activity implements BluetoothService.Bluetooth
     @Override
     protected void onResume() {
     	super.onResume();
+    	
     	progressToConnect = ProgressDialog.show(this, "connecting...",
     		    "waiting for connection", true);
     	btStateActor.register(this);
-    	Intent serviceBind = new Intent(this,BluetoothService.class);
-    	bindService(serviceBind, bluetoothServiceConnection,Context.BIND_AUTO_CREATE );
     	
     	bluetoothEnabledBeforeAppStart=mBluetoothAdapter.isEnabled();
     	onBluetoothEnabledChanged(bluetoothEnabledBeforeAppStart);
     	mBluetoothAdapter.enable();
-	
+    	doConnectToDefault();
 
 
             
@@ -108,16 +110,12 @@ public class MainActivity extends Activity implements BluetoothService.Bluetooth
 	@Override
 	protected void onPause() {
 		super.onPause();
-		if (btService != null){
-			btService.disconnect();
-			
-		}
+		btClient.cancel("app paused");
 		
 		if (!bluetoothEnabledBeforeAppStart){
 			mBluetoothAdapter.disable();
 		}
 		btStateActor.unregister(this);
-		unbindService(bluetoothServiceConnection);
 		
 		if (progressToConnect != null)
 			progressToConnect.dismiss();
@@ -125,65 +123,41 @@ public class MainActivity extends Activity implements BluetoothService.Bluetooth
 	    
 
 	
-	private void tryConnect(){
-		if (before_connect.size()==0){
-			doConnectToDefault();
-		}
-	}
+	
     
-    private final ServiceConnection bluetoothServiceConnection = new ServiceConnection() {
+
 		
-		@Override
-		public void onServiceDisconnected(ComponentName name) {
-			before_connect.add(BEFORE_CONNECT.NOT_CONNECTED_WITH_SERVICE);
-			runOnUiThread(new Runnable() {
-				
-				@Override
-				public void run() {
-					btService = null;
-					
-					connstatus.setText("unknown");
-					connstatus.setTextColor(Color.YELLOW);
-					
-				}
-			});
-			
-		}
 		
-		@Override
-		public void onServiceConnected(ComponentName name, IBinder service) {
-			
-			BluetoothService.MyBinder b = (BluetoothService.MyBinder) service;
-		    btService = b.getService();
-		    btService.setCallback(MainActivity.this);
-		    onConnection(btService.isConnected(), false);
-			
-			before_connect.remove(BEFORE_CONNECT.NOT_CONNECTED_WITH_SERVICE);
-			tryConnect();
-		    
-		}
-	};
     
 	
 	
 
-    private void doConnectToDefault(){
-		Set<BluetoothDevice> bondedSet = BluetoothAdapter.getDefaultAdapter()
-				.getBondedDevices();
+    private synchronized void  doConnectToDefault(){
+    	if (before_connect.size()==0){
+    		before_connect.add(BEFORE_CONNECT.ALREADY_CONNECTED);
 		
-		SharedPreferences prefs = this.getSharedPreferences(
-			      "de.philipphock.android.bluetoothremote", Context.MODE_PRIVATE);
-		String devicekey = "device";
-		String mac = prefs.getString(devicekey, "");
+			Set<BluetoothDevice> bondedSet = BluetoothAdapter.getDefaultAdapter()
+					.getBondedDevices();
 			
-		for(BluetoothDevice d:bondedSet){
-			if (d.getAddress().equals(mac)){
-				Log.d("debug", "found: "+d.getName());
-				btService.doConnect(d);
-				return;
+			SharedPreferences prefs = this.getSharedPreferences(
+				      "de.philipphock.android.bluetoothremote", Context.MODE_PRIVATE);
+			String devicekey = "device";
+			String mac = prefs.getString(devicekey, "");
+				
+			for(BluetoothDevice d:bondedSet){
+				if (d.getAddress().equals(mac)){
+					Log.d("debug", "found: "+d.getName());
+					try {
+						btClient = new BTClient(d,serviceUUID,MainActivity.this,true);
+						btClient.startListeningForIncomingBytes();
+
+					} catch (IOException e) {
+						e.printStackTrace();
+					}
+					return;
+				}
 			}
-		}
-		
+    	}
     }
 
     
@@ -192,40 +166,8 @@ public class MainActivity extends Activity implements BluetoothService.Bluetooth
     
     
     
-	@Override
-	public void onConnection(final boolean isConnected, boolean hasChanged) {
-		runOnUiThread(new Runnable() {
-			
-			@Override
-			public void run() {
-				if (isConnected){
-					connstatus.setText("connected");
-					connstatus.setTextColor(Color.GREEN);
-					if (progressToConnect != null)
-						progressToConnect.dismiss();
-				}else{
-					connstatus.setText("disconnected");
-					connstatus.setTextColor(Color.RED);
-				}
-			}
-		});  
-
-		
-	}
-
-
-	@Override
-	public void onRecv(final String data) {
-		//handle recv
-		runOnUiThread(new Runnable() {
-			
-			@Override
-			public void run() {
-				Toast.makeText(MainActivity.this, "recv "+data, Toast.LENGTH_SHORT).show();
-				
-			}
-		});
-	}
+	
+	
 
 
 	@Override
@@ -249,7 +191,7 @@ public class MainActivity extends Activity implements BluetoothService.Bluetooth
 			btStatus.setText("bluetooth on");
 			btStatus.setTextColor(Color.GREEN);
 			before_connect.remove(BEFORE_CONNECT.BLUETOOTH_OFF);
-			tryConnect();
+			doConnectToDefault();
 			
 		}else{
 			before_connect.add(BEFORE_CONNECT.BLUETOOTH_OFF);
@@ -318,21 +260,16 @@ public class MainActivity extends Activity implements BluetoothService.Bluetooth
 	    return super.onCreateOptionsMenu(menu);
 	}
 	
-	@Override
-	protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-		Log.d("debug","result");
-		if (requestCode == 1 && resultCode == RESULT_OK){
-			Log.d("debug","cond");
-			BluetoothDevice d = data.getParcelableExtra("device");
-			
-			btService.doConnect(d);
-		}
-	}
+	
 	
 	
 	
 	private void send(String s){
-    	btService.send(s);
+    	try {
+			btClient.send(s.getBytes("UTF-8"));
+		} catch (UnsupportedEncodingException e) {
+			e.printStackTrace();
+		}
 	}
 	
 	
@@ -362,6 +299,61 @@ public class MainActivity extends Activity implements BluetoothService.Bluetooth
 	private void send_Volume(float percent){
 		Log.d("debug", "volume:"+percent);
 		send("volume:"+percent);
+	}
+
+
+	@Override
+	public synchronized void onConnection(final boolean isConnected) {
+		if (!isConnected){
+			before_connect.remove(BEFORE_CONNECT.ALREADY_CONNECTED);
+		}else{
+			send("request_status");
+		}
+			runOnUiThread(new Runnable() {
+			
+			@Override
+			public void run() {
+				if (isConnected){
+					connstatus.setText("connected");
+					connstatus.setTextColor(Color.GREEN);
+					if (progressToConnect != null)
+						progressToConnect.dismiss();
+				}else{
+					connstatus.setText("disconnected");
+					connstatus.setTextColor(Color.RED);
+				}
+			}
+		});  		
+	}
+
+
+	@Override
+	public void onRecv(byte[] data, int length) {
+		//handle recv
+		
+		
+		try {
+			final String recv = new String(data,0,length,"UTF-8");
+			try {
+				JSONObject o = new JSONObject(recv);
+				double vol = o.getDouble("vol");
+				seek.setProgress((int)(vol*1000));
+				Log.d("debug","set slider to "+(int)(vol*1000));
+			} catch (JSONException e) {
+				
+			}
+			
+			runOnUiThread(new Runnable() {
+				
+				@Override
+				public void run() {
+					Toast.makeText(MainActivity.this, "recv "+recv, Toast.LENGTH_SHORT).show();
+				}
+			});
+		} catch (UnsupportedEncodingException e) {
+			e.printStackTrace();
+		}
+		
 	}
 	
 }
