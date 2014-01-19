@@ -26,13 +26,13 @@ import android.widget.SeekBar;
 import android.widget.SeekBar.OnSeekBarChangeListener;
 import android.widget.TextView;
 import android.widget.Toast;
+import de.philipphock.android.lib.bluetooth.BTClient;
 import de.philipphock.android.lib.broadcast.blutooth.BluetoothStateActor;
 import de.philipphock.android.lib.broadcast.blutooth.BluetoothStateChangeReactor;
 
 public class MainActivity extends Activity implements BluetoothService.BluetoothServiceCallbacks, BluetoothStateChangeReactor{
 
 	
-	private EditText recvTxt;
 	private TextView connstatus;
 	private BluetoothAdapter mBluetoothAdapter;
 	private BluetoothService btService;
@@ -42,6 +42,7 @@ public class MainActivity extends Activity implements BluetoothService.Bluetooth
 	private enum BEFORE_CONNECT {NOT_CONNECTED_WITH_SERVICE,BLUETOOTH_OFF};
 	private ProgressDialog progressToConnect;
 	private Set<BEFORE_CONNECT> before_connect = new HashSet<MainActivity.BEFORE_CONNECT>();
+	private BTClient btClient; 
 	
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -108,7 +109,8 @@ public class MainActivity extends Activity implements BluetoothService.Bluetooth
 	protected void onPause() {
 		super.onPause();
 		if (btService != null){
-			btService.disconnect();	
+			btService.disconnect();
+			
 		}
 		
 		if (!bluetoothEnabledBeforeAppStart){
@@ -215,7 +217,14 @@ public class MainActivity extends Activity implements BluetoothService.Bluetooth
 	@Override
 	public void onRecv(final String data) {
 		//handle recv
-		
+		runOnUiThread(new Runnable() {
+			
+			@Override
+			public void run() {
+				Toast.makeText(MainActivity.this, "recv "+data, Toast.LENGTH_SHORT).show();
+				
+			}
+		});
 	}
 
 

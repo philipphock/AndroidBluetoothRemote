@@ -15,7 +15,6 @@ import de.philipphock.android.lib.bluetooth.BTClient.BTClientCallback;
 public class BluetoothService extends Service implements BTClientCallback{
 	private final IBinder mBinder = new MyBinder();
 	private final String serviceUUID = "94d6b2c0-8034-11e3-baa7-0800200c9a66";
-	private volatile boolean isConnected = false;
 	private BluetoothServiceCallbacks callbacks;
 	private BTClient btClient; 
 	
@@ -24,16 +23,15 @@ public class BluetoothService extends Service implements BTClientCallback{
 	}
 	
 	
-	@Override
-	public void onCreate() {
-		super.onCreate();
-
-		
-	}
 	
 	@Override
-	public IBinder onBind(Intent intent) {
+	public synchronized IBinder  onBind(Intent intent) {
 		
+		if (btClient != null){
+			
+			btClient.cancel();
+		}
+			
 		return mBinder;
 	}
 
@@ -46,29 +44,24 @@ public class BluetoothService extends Service implements BTClientCallback{
 	
 	public synchronized void doConnect(BluetoothDevice d){
 		
-		if (isConnected){
-			Log.d("debug","isConnected");
-			if (callbacks == null) return;
-			callbacks.onConnection(isConnected, false);
-			return;
-		}
-
-		try {
+			if (btClient!=null && callbacks != null){
+				callbacks.onConnection(btClient.isConnected(), false);
+			}
 			if (btClient != null){
 				Log.d("debug","cancel client");
 				btClient.cancel();
 			}else{
 				Log.d("debug","client is null");
 			}
-			Log.d("debug","init new client");
 
-			btClient = new BTClient(d, serviceUUID, this,true);
-			Log.d("debug","start listening");
+			try {
+				btClient = new BTClient(d, serviceUUID, this,true);
+				btClient.startListeningForIncomingBytes();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
 
-			btClient.startListeningForIncomingBytes();
-		} catch (IOException e) {
-			callbacks.onError(e);
-		}
+		
 	}
 	
 	public synchronized void send(String data){
@@ -95,7 +88,8 @@ public class BluetoothService extends Service implements BTClientCallback{
 	}
 	
 	public boolean isConnected(){
-		return isConnected;
+		if (btClient == null) return false;
+		return btClient.isConnected();
 	}
 	
 	public interface BluetoothServiceCallbacks{
@@ -110,7 +104,6 @@ public class BluetoothService extends Service implements BTClientCallback{
 	@Override
 	public void onConnection(boolean isConnected) {
 		Log.d("debug", "connection callback: "+isConnected);
-		this.isConnected = isConnected;
 		if (callbacks == null){
 			Log.d("debug", "cannot tell callback :( he is null");
 			return;
@@ -138,10 +131,16 @@ public class BluetoothService extends Service implements BTClientCallback{
 	//BTClientCallback\\
 	
 	public void disconnect(){
-		isConnected=false;
 		
 		if (btClient != null)
 			btClient.cancel();
-		
+		stopSelf();
+	}
+	
+	@Override
+	public void onDestroy() {
+		if (btClient != null)
+			btClient.cancel();
+		super.onDestroy();
 	}
 }
