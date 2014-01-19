@@ -18,7 +18,6 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.os.Bundle;
-import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
@@ -146,7 +145,6 @@ public class MainActivity extends Activity implements BTClientCallback, Bluetoot
 				
 			for(BluetoothDevice d:bondedSet){
 				if (d.getAddress().equals(mac)){
-					Log.d("debug", "found: "+d.getName());
 					try {
 						btClient = new BTClient(d,serviceUUID,MainActivity.this,true);
 						btClient.startListeningForIncomingBytes();
@@ -297,7 +295,6 @@ public class MainActivity extends Activity implements BTClientCallback, Bluetoot
 
 	
 	private void send_Volume(float percent){
-		Log.d("debug", "volume:"+percent);
 		send("volume:"+percent);
 	}
 
@@ -338,7 +335,7 @@ public class MainActivity extends Activity implements BTClientCallback, Bluetoot
 				JSONObject o = new JSONObject(recv);
 				double vol = o.getDouble("vol");
 				seek.setProgress((int)(vol*1000));
-				Log.d("debug","set slider to "+(int)(vol*1000));
+				return;
 			} catch (JSONException e) {
 				
 			}
